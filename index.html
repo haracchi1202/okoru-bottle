@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>怒るボトル</title>
+<style>
+  :root {
+    --bg: #1c1c1c;
+    --panel: #ffffff;
+    --cols: 5;
+    --rows: 5;
+    --gap: 4px;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+  }
+
+  img { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
+
+  /* 縦長スマホ基準。PCでは中央に縦長表示 */
+  #app {
+    width: 100%;
+    max-width: 480px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ===== ヘッダー ===== */
+  header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 10px;
+    position: relative;
+  }
+
+  .hbtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.85);
+    background: transparent;
+    color: #fff;
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex: 0 0 auto;
+    touch-action: manipulation;
+  }
+  .hbtn:active { background: rgba(255,255,255,0.12); }
+
+  .hright { display: flex; align-items: center; gap: 10px; }
+
+  .noads {
+    height: 44px;
+    padding: 0 16px;
+    border-radius: 22px;
+    border: 2px solid rgba(255,255,255,0.85);
+    background: transparent;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+
+  /* リトライは結果画面のときだけ中央に表示 */
+  .retry-btn {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  #app.state-result .retry-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* 結果画面ではヘッダー中央のリトライを目立たせるため、左右ボタンを少し薄く */
+  #app.state-result .noads { opacity: 0.4; }
+
+  /* ===== プレイフィールド ===== */
+  #field-wrap {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 16px 18px;
+    min-height: 0;
+  }
+
+  #panel {
+    position: relative;
+    background: var(--panel);
+    border-radius: 22px;
+    /* 幅と高さはJSでセルサイズに合わせて設定 */
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    grid-template-rows: repeat(var(--rows), 1fr);
+    gap: var(--gap);
+    padding: var(--gap);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+
+  .cell {
+    position: relative;
+    overflow: visible; /* 湯気がはみ出せるように */
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .bottle {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    will-change: transform, filter, opacity;
+    transform-origin: bottom center;
+  }
+
+  /* 押下中：暗転（当たりでも同じ見た目） */
+  .cell.pressing .bottle {
+    filter: brightness(0.35);
+  }
+
+  .cell.empty { pointer-events: none; }
+  .cell.empty .bottle { display: none; }
+
+  /* セーフ：跳ねて上へ飛ぶ */
+  @keyframes fly-away {
+    0%   { transform: translateY(0) scale(1); }
+    18%  { transform: translateY(8%) scale(1.05, 0.92); } /* ちょい跳ね（潰れ） */
+    40%  { transform: translateY(-6%) scale(0.98, 1.04); }
+    100% { transform: translateY(-160%) scale(0.7); opacity: 0; }
+  }
+  .cell.flying .bottle {
+    animation: fly-away 0.4s cubic-bezier(0.4, 0, 0.9, 0.4) forwards;
+  }
+
+  /* 怒り：溜め→ブルブル震え */
+  @keyframes shake {
+    0%,100% { transform: translateX(0) translateY(0) rotate(0deg); }
+    15% { transform: translateX(-3px) rotate(-2deg); }
+    30% { transform: translateX(3px) rotate(2deg); }
+    45% { transform: translateX(-3px) rotate(-2deg); }
+    60% { transform: translateX(3px) rotate(2deg); }
+    75% { transform: translateX(-2px) rotate(-1deg); }
+  }
+
+  /* 怒り画像の見せ方：セル幅の約1.3倍・下端そろえ・中央寄せ・最前面 */
+  .cell.angry {
+    z-index: 50;
+    overflow: visible;
+  }
+  .cell.angry .bottle {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 130%;
+    height: auto;
+    max-height: none;
+    transform: translateX(-50%);
+    transform-origin: bottom center;
+    filter: none;
+  }
+  .cell.angry.shaking .bottle {
+    animation: shake 0.4s ease-in-out 1;
+  }
+
+  /* 他ボトルのフェードアウト（ズーム演出時） */
+  .cell.fade .bottle {
+    transition: opacity 0.3s ease;
+    opacity: 0;
+  }
+
+  /* ===== 結果：怒り画像をパネルいっぱいにズーム表示 ===== */
+  #result-layer {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: none;
+  }
+  #app.state-angry #result-layer,
+  #app.state-result #result-layer { display: flex; }
+
+  @keyframes zoom-in {
+    0%   { transform: scale(0.25); opacity: 0.6; }
+    70%  { transform: scale(1.08); opacity: 1; }  /* オーバーシュート */
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes prunprun {
+    0%,100% { transform: scale(1) rotate(-1.5deg); }
+    50%     { transform: scale(1.02) rotate(1.5deg); }
+  }
+
+  #result-img {
+    max-width: 94%;
+    max-height: 94%;
+    object-fit: contain;
+    display: block;
+  }
+  #app.state-angry #result-img {
+    animation: zoom-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+  #app.state-result #result-img {
+    animation: prunprun 1.1s ease-in-out infinite;
+  }
+
+  /* ===== ローディング ===== */
+  #loading {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    z-index: 200;
+    transition: opacity 0.3s ease;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  .spinner {
+    width: 44px;
+    height: 44px;
+    border: 4px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading .ltext { font-size: 14px; color: rgba(255,255,255,0.75); }
+  #loading .ltitle { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div id="app" class="state-loading">
+  <header>
+    <button class="hbtn" id="backBtn" aria-label="戻る">&#8592;</button>
+    <button class="hbtn retry-btn" id="retryBtn" aria-label="リトライ">&#10227;</button>
+    <div class="hright">
+      <button class="noads" id="noAdsBtn">NO ADS</button>
+      <button class="hbtn" id="muteBtn" aria-label="ミュート切替">&#128266;</button>
+    </div>
+  </header>
+
+  <div id="field-wrap">
+    <div id="panel">
+      <!-- 25セルはJSで生成 -->
+      <div id="result-layer">
+        <img id="result-img" alt="">
+      </div>
+    </div>
+  </div>
+
+  <div id="loading">
+    <div class="ltitle">怒るボトル</div>
+    <div class="spinner"></div>
+    <div class="ltext" id="loadText">素材を読み込み中…</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ===== ボトル定義（9種類） =====
+  var BOTTLES = [
+    { key: "original",         normal: "images/original.png",         angry: "images/original_angry.png" },
+    { key: "coco_biscuit",     normal: "images/coco_biscuit.png",     angry: "images/coco_biscuit_angry.png" },
+    { key: "ananas_sour",      normal: "images/ananas_sour.png",      angry: "images/ananas_sour_angry.png" },
+    { key: "wild_berry_tonic", normal: "images/wild_berry_tonic.png", angry: "images/wild_berry_tonic_angry.png" },
+    { key: "red_berry_sour",   normal: "images/red_berry_sour.png",   angry: "images/red_berry_sour_angry.png" },
+    { key: "blueberry",        normal: "images/blueberry.png",        angry: "images/blueberry_angry.png" },
+    { key: "american_ice_tea", normal: "images/american_ice_tea.png", angry: "images/american_ice_tea_angry.png" },
+    { key: "lemon_sour",       normal: "images/lemon_sour.png",       angry: "images/lemon_sour_angry.png" },
+    { key: "apricot_plum",     normal: "images/apricot_plum.png",     angry: "images/apricot_plum_angry.png" }
+  ];
+
+  var SOUND_TAP = "sounds/tap.m4a";
+  var SOUND_ANGRY = "sounds/angry.m4a";
+  var GRID = 25;
+
+  // ===== DOM参照 =====
+  var app = document.getElementById("app");
+  var panel = document.getElementById("panel");
+  var resultLayer = document.getElementById("result-layer");
+  var resultImg = document.getElementById("result-img");
+  var loading = document.getElementById("loading");
+  var loadText = document.getElementById("loadText");
+  var muteBtn = document.getElementById("muteBtn");
+  var retryBtn = document.getElementById("retryBtn");
+
+  // ===== 状態（怒る位置はここだけで管理。DOMには出さない） =====
+  var state = "loading";          // loading | playing | angry | result
+  var angryIndex = -1;            // 怒るボトルのマス番号（内部変数のみ）
+  var angryBottleKey = null;      // 怒るボトルの味（内部変数のみ）
+  var cellData = [];              // 各マスの味key（セーフ判定とは無関係）
+  var cells = [];                 // セル要素
+  var remaining = 0;              // 残りボトル数
+
+  // ===== オーディオ（Web Audio API） =====
+  var audioCtx = null;
+  var buffers = {};               // url -> AudioBuffer
+  var muted = false;
+
+  try { muted = localStorage.getItem("okoru_muted") === "1"; } catch (e) {}
+
+  function updateMuteIcon() {
+    muteBtn.innerHTML = muted ? "&#128263;" : "&#128266;"; // 🔇 / 🔈
+  }
+  updateMuteIcon();
+
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+  }
+
+  function playSound(url) {
+    if (muted || !audioCtx || !buffers[url]) return;
+    try {
+      var src = audioCtx.createBufferSource();
+      src.buffer = buffers[url];
+      src.connect(audioCtx.destination);
+      src.start(0);
+    } catch (e) {}
+  }
+
+  // ===== プリロード =====
+  function preloadImage(url) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () { resolve(); };
+      img.onerror = function () { resolve(); }; // 失敗しても止めない
+      img.src = url;
+    });
+  }
+
+  function loadSoundBuffer(url) {
+    return fetch(url)
+      .then(function (r) { return r.arrayBuffer(); })
+      .then(function (buf) {
+        return new Promise(function (resolve) {
+          if (!audioCtx) { resolve(); return; }
+          audioCtx.decodeAudioData(buf, function (decoded) {
+            buffers[url] = decoded;
+            resolve();
+          }, function () { resolve(); });
+        });
+      })
+      .catch(function () {}); // 失敗しても止めない
+  }
+
+  function preloadAll() {
+    // 画像18枚（通常9＋怒り9）はJSのImageオブジェクトでプリロード
+    var imgUrls = [];
+    BOTTLES.forEach(function (b) { imgUrls.push(b.normal); imgUrls.push(b.angry); });
+    var imgPromises = imgUrls.map(preloadImage);
+
+    // 音声はAudioContext作成後にデコード
+    ensureAudioCtx();
+    var sndPromises = [loadSoundBuffer(SOUND_TAP), loadSoundBuffer(SOUND_ANGRY)];
+
+    return Promise.all(imgPromises.concat(sndPromises));
+  }
+
+  // ===== 配置ロジック =====
+  function shuffle(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  function buildLayout() {
+    // 9種類を1本ずつ＋残り16本を9種からランダム＝25本
+    var picks = BOTTLES.map(function (b) { return b.key; }); // 9本
+    for (var i = 0; i < GRID - BOTTLES.length; i++) {
+      picks.push(BOTTLES[Math.floor(Math.random() * BOTTLES.length)].key);
+    }
+    shuffle(picks);
+    cellData = picks;
+
+    // 怒るボトルを1マスだけ抽選（配置とは独立）
+    angryIndex = Math.floor(Math.random() * GRID);
+    angryBottleKey = cellData[angryIndex];
+  }
+
+  function bottleByKey(key) {
+    for (var i = 0; i < BOTTLES.length; i++) {
+      if (BOTTLES[i].key === key) return BOTTLES[i];
+    }
+    return BOTTLES[0];
+  }
+
+  // ===== パネルサイズ調整（セル縦横比 349:583 を維持） =====
+  var CELL_RATIO = 349 / 583; // 幅/高さ
+  function layoutPanel() {
+    var wrap = document.getElementById("field-wrap");
+    var cs = getComputedStyle(wrap);
+    var availW = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    var availH = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    var gap = 4;
+    var pad = 4;
+    var cols = 5, rows = 5;
+
+    // セル幅と高さの関係： cellH = cellW / CELL_RATIO
+    // パネル幅 = cols*cellW + (cols-1)*gap + 2*pad
+    // パネル高 = rows*cellH + (rows-1)*gap + 2*pad
+    // 幅制約でのcellW
+    var cellWByWidth = (availW - (cols - 1) * gap - 2 * pad) / cols;
+    // 高さ制約でのcellW
+    var cellHByHeight = (availH - (rows - 1) * gap - 2 * pad) / rows;
+    var cellWByHeight = cellHByHeight * CELL_RATIO;
+
+    var cellW = Math.min(cellWByWidth, cellWByHeight);
+    if (cellW <= 0) cellW = 10;
+    var cellH = cellW / CELL_RATIO;
+
+    var panelW = cols * cellW + (cols - 1) * gap + 2 * pad;
+    var panelH = rows * cellH + (rows - 1) * gap + 2 * pad;
+
+    panel.style.width = panelW + "px";
+    panel.style.height = panelH + "px";
+  }
+
+  // ===== グリッド生成 =====
+  function buildGrid() {
+    // result-layerは残して他を消す
+    cells = [];
+    // 既存セル削除
+    var old = panel.querySelectorAll(".cell");
+    old.forEach(function (c) { c.remove(); });
+
+    for (var i = 0; i < GRID; i++) {
+      var cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.i = i;
+
+      var img = document.createElement("img");
+      img.className = "bottle";
+      // 怒り位置かどうかに関係なく、全マス通常画像を表示（srcから推測不可）
+      img.src = bottleByKey(cellData[i]).normal;
+      img.alt = "";
+      cell.appendChild(img);
+
+      // result-layerの前に挿入
+      panel.insertBefore(cell, resultLayer);
+      cells.push(cell);
+    }
+    remaining = GRID;
+  }
+
+  // ===== タップ処理 =====
+  var pressingCell = null;
+
+  function onPointerDown(e) {
+    if (state !== "playing") return;
+    var cell = e.target.closest ? e.target.closest(".cell") : null;
+    if (!cell) return;
+    if (cell.classList.contains("empty") || cell.classList.contains("flying")) return;
+
+    ensureAudioCtx(); // iOS対策：最初のタップでresume
+
+    pressingCell = cell;
+    cell.classList.add("pressing");
+  }
+
+  function onPointerUp(e) {
+    if (state !== "playing") return;
+    if (!pressingCell) return;
+
+    var cell = pressingCell;
+    pressingCell = null;
+    cell.classList.remove("pressing");
+
+    // 離した指がセル外なら無効（押下キャンセル）
+    var endCell = null;
+    if (e.target && e.target.closest) endCell = e.target.closest(".cell");
+    // Pointerの座標からも判定（確実性のため）
+    if (!endCell && e.clientX != null) {
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      if (el && el.closest) endCell = el.closest(".cell");
+    }
+    if (endCell !== cell) {
+      return; // キャンセル：何もしない
+    }
+
+    var i = parseInt(cell.dataset.i, 10);
+
+    if (i === angryIndex) {
+      triggerAngry(cell);
+    } else {
+      triggerSafe(cell);
+    }
+  }
+
+  function onPointerCancel() {
+    if (pressingCell) {
+      pressingCell.classList.remove("pressing");
+      pressingCell = null;
+    }
+  }
+
+  // セーフ：音→跳ねて飛ぶ→空白
+  function triggerSafe(cell) {
+    playSound(SOUND_TAP);
+    cell.classList.add("flying");
+    remaining--;
+    // 飛んでいく演出中でも他はタップ可能（stateはplayingのまま）
+    setTimeout(function () {
+      cell.classList.remove("flying");
+      cell.classList.add("empty");
+    }, 400);
+  }
+
+  // 怒り：溜め→差し替え＋音＋震え→ズーム→結果
+  function triggerAngry(cell) {
+    state = "angry";          // 入力無効化
+    app.classList.remove("state-playing");
+    app.classList.add("state-angry");
+
+    var bottle = bottleByKey(angryBottleKey);
+
+    // 0.2秒その場で止まる（溜め）
+    setTimeout(function () {
+      // 怒り画像に差し替え（ここで初めて怒りsrcをDOMへ）
+      var img = cell.querySelector(".bottle");
+      img.src = bottle.angry;
+      cell.classList.remove("pressing");
+      cell.classList.add("angry", "shaking");
+
+      // 音＋震え（約0.4秒）
+      playSound(SOUND_ANGRY);
+
+      // 他のボトルをフェードアウト
+      cells.forEach(function (c) {
+        if (c !== cell) c.classList.add("fade");
+      });
+
+      // 震えのあとズーム表示へ（結果レイヤー）
+      setTimeout(function () {
+        // 結果レイヤーに怒り画像をセットしてズーム
+        resultImg.src = bottle.angry;
+        // state-angry のまま zoom-in アニメ発火
+        // ズーム完了後 result へ
+        setTimeout(function () {
+          goResult();
+        }, 320);
+      }, 400);
+    }, 200);
+  }
+
+  function goResult() {
+    state = "result";
+    app.classList.remove("state-angry");
+    app.classList.add("state-result");
+  }
+
+  // ===== リトライ =====
+  function retry() {
+    state = "playing";
+    app.className = "state-playing";
+    resultImg.src = "";
+    buildLayout();
+    layoutPanel();
+    buildGrid();
+  }
+
+  // ===== ミュート =====
+  function toggleMute() {
+    muted = !muted;
+    try { localStorage.setItem("okoru_muted", muted ? "1" : "0"); } catch (e) {}
+    updateMuteIcon();
+  }
+
+  // ===== イベント登録 =====
+  panel.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerCancel);
+
+  // ドラッグ・コンテキストメニュー・選択を無効化
+  panel.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  panel.addEventListener("dragstart", function (e) { e.preventDefault(); });
+
+  muteBtn.addEventListener("click", toggleMute);
+  retryBtn.addEventListener("click", function () { if (state === "result") retry(); });
+
+  // 見た目だけのボタン（押しても何もしない）
+  document.getElementById("backBtn").addEventListener("click", function () {});
+  document.getElementById("noAdsBtn").addEventListener("click", function () {});
+
+  // リサイズ対応
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      layoutPanel();
+    }, 100);
+  });
+  window.addEventListener("orientationchange", function () {
+    setTimeout(layoutPanel, 200);
+  });
+
+  // ===== 起動 =====
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    preloadAll().then(function () {
+      loadText.textContent = "準備完了！";
+      buildLayout();
+      layoutPanel();
+      buildGrid();
+      state = "playing";
+      app.className = "state-playing";
+      // ローディングを隠す
+      loading.classList.add("hidden");
+      setTimeout(function () { loading.style.display = "none"; }, 350);
+    });
+  }
+
+  // 画像のレイアウトは panel サイズ確定後に。初回レイアウトのため少し待つ
+  window.addEventListener("load", start);
+  // loadが既に済んでいる場合の保険
+  if (document.readyState === "complete") start();
+})();
+</script>
+</body>
+</html>
