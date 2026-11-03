@@ -358,9 +358,9 @@
   // ===== 顔定義（3人） =====
   // normal = 笑っている顔（ふだんの顔）, angry = 怒っている顔
   var FACES = [
-    { key: "face1", normal: "faces/face1.png", angry: "faces/face1_angry.png" },
-    { key: "face2", normal: "faces/face2.png", angry: "faces/face2_angry.png" },
-    { key: "face3", normal: "faces/face3.png", angry: "faces/face3_angry.png" }
+    { key: "face1", normal: "faces/face1.png", angry: "faces/face1_angry.png", voice: "sounds/voice_face1.m4a" }, // 原
+    { key: "face2", normal: "faces/face2.png", angry: "faces/face2_angry.png", voice: "sounds/voice_face2.m4a" }, // 尚人
+    { key: "face3", normal: "faces/face3.png", angry: "faces/face3_angry.png", voice: "sounds/voice_face3.m4a" }  // HIRO
   ];
 
   // この顔（白髪まじりのおじさん＝face1）をタップすると怒る
@@ -451,7 +451,9 @@
     var imgPromises = imgUrls.map(preloadImage);
 
     ensureAudioCtx();
-    var sndPromises = [loadSoundBuffer(SOUND_TAP), loadSoundBuffer(SOUND_ANGRY)];
+    var sndUrls = [SOUND_TAP, SOUND_ANGRY];
+    FACES.forEach(function (b) { if (b.voice) sndUrls.push(b.voice); });
+    var sndPromises = sndUrls.map(loadSoundBuffer);
 
     return Promise.all(imgPromises.concat(sndPromises));
   }
@@ -582,9 +584,11 @@
     }
   }
 
-  // セーフ：音→跳ねて飛ぶ→空白
+  // セーフ：その人のボイス→跳ねて飛ぶ→空白
   function triggerSafe(cell) {
-    playSound(SOUND_TAP);
+    var i = parseInt(cell.dataset.i, 10);
+    var face = faceByKey(cellData[i]);
+    playSound(face.voice || SOUND_TAP);
     cell.classList.add("flying");
     remaining--;
     setTimeout(function () {
@@ -608,7 +612,7 @@
       cell.classList.remove("pressing");
       cell.classList.add("angry", "shaking");
 
-      playSound(SOUND_ANGRY);
+      playSound(face.voice || SOUND_ANGRY);
 
       cells.forEach(function (c) {
         if (c !== cell) c.classList.add("fade");
