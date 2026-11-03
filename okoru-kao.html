@@ -358,14 +358,15 @@
   // ===== 顔定義（3人） =====
   // normal = 笑っている顔（ふだんの顔）, angry = 怒っている顔
   var FACES = [
-    { key: "face1", normal: "faces/face1.png", angry: "faces/face1_angry.png", voice: "sounds/voice_face1.m4a" }, // 原
-    { key: "face2", normal: "faces/face2.png", angry: "faces/face2_angry.png", voice: "sounds/voice_face2.m4a" }, // 尚人
-    { key: "face3", normal: "faces/face3.png", angry: "faces/face3_angry.png", voice: "sounds/voice_face3.m4a" }  // HIRO
+    { key: "face1", normal: "faces/face1.png", angry: "faces/face1_angry.png", voice: "sounds/voice_face1.m4a", line: "おじさんじゃねえだろ！" }, // 原
+    { key: "face2", normal: "faces/face2.png", angry: "faces/face2_angry.png", voice: "sounds/voice_face2.m4a", line: "ブチギレ！！" },         // 尚人
+    { key: "face3", normal: "faces/face3.png", angry: "faces/face3_angry.png", voice: "sounds/voice_face3.m4a", line: "ブチギレ！！" }          // HIRO
   ];
 
-  // この顔（白髪まじりのおじさん＝face1）をタップすると怒る
-  var ANGRY_KEY = "face1";
-  var ANGRY_LINE = "おじさんじゃねえだろ！";
+  // 怒りのルール
+  var FACE1_KEY = "face1";       // 原
+  var FACE1_COUNT = 3;           // 原は必ず3マス配置
+  var OTHER_ANGRY_PROB = 0.18;   // 原以外のマスが怒る確率（全員が怒りうる）
 
   var SOUND_TAP = "sounds/tap.m4a";
   var SOUND_ANGRY = "sounds/angry.m4a";
@@ -385,6 +386,7 @@
   // ===== 状態（怒る位置はここだけで管理。DOMには出さない） =====
   var state = "loading";          // loading | playing | angry | result
   var cellData = [];              // 各マスの人key
+  var angryFlags = [];            // 各マスが怒るか（内部変数のみ）
   var cells = [];                 // セル要素
   var remaining = 0;
 
@@ -468,14 +470,21 @@
   }
 
   function buildLayout() {
-    // 3人を最低1マスずつ＋残りをランダム＝25マス
-    var picks = FACES.map(function (b) { return b.key; });
-    for (var i = 0; i < GRID - FACES.length; i++) {
-      picks.push(FACES[Math.floor(Math.random() * FACES.length)].key);
+    // 原(face1)を必ず FACE1_COUNT マス、残りは尚人/HIROでうめる＝25マス
+    var picks = [];
+    for (var k = 0; k < FACE1_COUNT; k++) picks.push(FACE1_KEY);
+    var others = ["face2", "face3"];
+    while (picks.length < GRID) {
+      picks.push(others[Math.floor(Math.random() * others.length)]);
     }
     shuffle(picks);
     cellData = picks;
-    // 怒るのは「この顔（ANGRY_KEY）」。どのマスにあっても、タップされたら怒る。
+
+    // 怒りフラグ：原は必ず怒る／それ以外は確率で怒る（全員が怒りうる）
+    angryFlags = cellData.map(function (key) {
+      if (key === FACE1_KEY) return true;
+      return Math.random() < OTHER_ANGRY_PROB;
+    });
   }
 
   function faceByKey(key) {
@@ -570,7 +579,7 @@
 
     var i = parseInt(cell.dataset.i, 10);
 
-    if (cellData[i] === ANGRY_KEY) {
+    if (angryFlags[i]) {
       triggerAngry(cell);
     } else {
       triggerSafe(cell);
@@ -620,7 +629,7 @@
 
       setTimeout(function () {
         resultImg.src = face.angry;
-        speech.textContent = ANGRY_LINE; // 「おじさんじゃねえだろ！」
+        speech.textContent = face.line || ""; // その人のセリフ
         setTimeout(function () {
           goResult();
         }, 320);
